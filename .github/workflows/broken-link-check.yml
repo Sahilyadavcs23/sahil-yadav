@@ -1,21 +1,47 @@
-name: Check for Broken Links
+name: Links
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # Every day at midnight (UTC)
+    - cron: "0 0 * * *"  # Daily at midnight UTC
 
 jobs:
-  lychee-link-check:
+  linkChecker:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write  # Needed to create GitHub issues
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Run lychee link checker
-        uses: lycheeverse/lychee-action@v1.9.1
+      - name: Restore lychee cache
+        id: restore-cache
+        uses: actions/cache/restore@v4
         with:
-          args: . --verbose --exclude-mail --no-progress
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
+
+      - name: Link Checker
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --base . --cache --max-cache-age 1d './**/*.md' './**/*.html'
+          format: markdown
+          output: ./lychee/out.md
+          fail: false
+
+      - name: Save lychee cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .lycheecache
+          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+
+      - name: Create Issue From File
+        if: steps.lychee.outputs.exit_code != 0
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: Link Checker Report
+          content-filepath: ./lychee/out.md
+          labels: report, automated issue
